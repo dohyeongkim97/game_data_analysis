@@ -1,0 +1,541 @@
+---
+title: "다변량분석"
+author: "김도형"
+date: "2024-06-10"
+output: html_document
+---
+
+# League Of Legends 게임데이터 분석 - PCA / SEM / Classification(XGB_CLF)
+
+
+최근 성장하는 E-Sports 시장 확장에 힘입어, 기존 야구와 같은 고전 스포츠 등에서 활용되던 승리요인 분석 등의 기법들이 리그에 도입되기 시작하였음.
+
+<br> 
+이러한 도입세는 기존 아마추어 플레잉 데이터들을 확보하기 힘들었던 고전 스포츠와는 다른 방식으로 발전, 아마추어들이나 일반인들을 대상으로도 서비스 확장. 가볍게는 승리/패배에 대한 기여도를 분석해주는 사이트들부터, 자세한 컨설팅을 제공해주는 서비스도 생겨남.
+<br>
+
+이에, 해당 서비스들을 소개하는 것을 겸하여, 프로젝트 주제를 해당 데이터 분석 및 모델 작성으로 결정.
+
+
+## 개요
+
+#### 1. Riot API를 활용한 데이터 로드(Python) - Tier/Division별로 포지션 무관 약 8천여건의 데이터 확보
+
+
+<br>
+
+#### 2. Proprocessing - Domain knowledge를 활용하여 사용 가능한 컬럼 정제 및 파생 변수 생성
+
+
+<br>
+
+
+#### 3. PCA를 통한 요인분석(target - win / lose)
+
+
+<br>
+
+
+#### 4. SEM을 통한 승리요인/티어상승요인(상위티어 위치 요인) 분석
+
+
+<br>
+
+
+#### 5. XGB Classifier를 통한 승리/패배 classifier 생성
+
+
+
+```{python, eval=FALSE}
+import pandas as pd
+import numpy as np
+import requests
+
+def get_tier_division_data(tier, division, queue):
+    url = f'https://kr.api.riotgames.com/lol/league-exp/v4/entries/{queue}/{tier}/{division}'
+    response = requests.get(url, headers=headers)
+    return response.json()
+
+def get_summoner_data_by_id(summoner_id):
+    url = f'https://kr.api.riotgames.com/lol/summoner/v4/summoners/{summoner_id}'
+    response = requests.get(url, headers=headers)
+    return response.json()
+
+def get_match_list(puuid):
+    url = f'https://asia.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids'
+    response = requests.get(url, headers=headers)
+    return response.json()
+
+def get_match_details(match_id):
+    url = f'https://asia.api.riotgames.com/lol/match/v5/matches/{match_id}'
+    response = requests.get(url, headers=headers)
+    return response.json()
+
+api_key =
+
+headers = {
+    'User-Agent' : 
+    'X-Riot-Token': api_key
+}
+
+for tier in tiers:
+    print(f'tier: {tier}')
+    for division in divisions:
+        print(f'division: {division}')
+        tier_division_data = get_tier_division_data(tier, division, queue)
+        time.sleep(120)
+        
+        for i in tier_division_data:
+            tier_list.append(i['tier'])
+            division_list.append(i['rank'])
+            id_list.append(i['summonerId'])
+            time.sleep(0.05)
+            
+puuid_list = []
+for i in range(len(id_list)):
+    puuid = get_summoner_data_by_id(id_list[i])['puuid']
+    puuid_list.append(puuid)
+    if i%20 == 0:
+        print(i)
+    time.sleep(1.3)
+    
+for i in range(5740):
+    got_puuid = get_summoner_data_by_id(id_list[i])
+    try:
+        puuid = got_puuid['puuid']
+    except:
+        print(f'break :{i}')
+        break
+    puuid_list.append(puuid)
+    if i%20 == 0:
+        print(i)
+    time.sleep(1.2)
+    
+j = 0
+match_dict = {}
+for puuid in puuid_list:
+    match_lists = get_match_list(puuid)
+    
+    match_dict[puuid] = match_lists
+    
+    time.sleep(1.2)
+    
+    j += 1
+    
+    if j % 50 == 0:
+        print(f'now: {j}')
+
+match_list = pd.DataFrame(match_dict)
+match_list.columns = ['puuid', 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+column_names = []
+error_list = []
+matches_details = pd.DataFrame()
+for j in range(4):
+    for i in range(len(matches_details)):
+        time.sleep(1.2)
+        try:
+            if not pd.isnull(matches.iloc[i, j]):
+                match_detail = get_match_details(matches.iloc[i, j])
+
+                for match in match_detail['info']['participants']:
+                    try:
+                        match = match|match['challenges']
+
+                    except:
+                        break
+
+                    try:
+                        del match['challenges']
+                    except:
+                        break
+                    try:
+                        del match['legendaryItemUsed']
+                    except:
+                        break
+                    try:
+                        del match['perks']
+                    except:
+                        break
+                    try:
+                        del match['missions']
+                    except:
+                        break
+
+                    match = pd.DataFrame(data=match.values(), index=match.keys())
+
+                    matches_details = pd.concat([matches_details, match], axis=1)
+                    column_names.append(f'{i}:{j}th')
+            else:
+                error_list.append((i, j))
+                continue
+        except:
+            error_list.append((i, j))
+            
+        print(i)
+```
+
+#### 필요 데이터(인게임 플레잉 데이터) 로드 및 패키지 로드
+
+
+패키지 : caret, HSAUR2, tools, lavaan, dplyr, xgboost (,+ IRdisplay)
+
+
+```{r echo=FALSE, message=FALSE}
+setwd("C:/Users/dohyeong/Jupyter Python/R/ku/mva")
+
+suppressWarnings(library(caret))
+suppressWarnings(library(IRdisplay))
+suppressWarnings(library(HSAUR2, tools))
+suppressWarnings(library(lavaan))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(xgboost))
+
+df = read.csv("df_final.csv")
+df = subset(df, select=-X)
+
+print(str(df))
+
+positions = read.csv("./position.csv")
+```
+
+#### PreProcessing
+
+Tier set, Division set, Win set, gameEndedInSurrender(항복으로 게임이 끝났는지 여부)  분리
+
+무의미한 칼럼(sightWardsBoughtInGame, dangerPings) 제거(삭제된 기능)
+
+데이터타입 숫자형(int, num)으로 변환
+
+변수생성((kills, deaths, assists, gold) per minute)
+
+```{r}
+# factor로 변환
+
+df$lane = as.factor(df$lane)
+df$Tier = as.factor(df$Tier)
+df$Division = as.factor(df$Division)
+positions$teamPosition = as.factor(positions$teamPosition)
+
+#이진변수 변환
+
+df$gameEndedInSurrender[df$gameEndedInSurrender == 'True'] = 1
+df$gameEndedInSurrender[df$gameEndedInSurrender == 'False'] = 0
+df$win[df$win == 'True'] = 1
+df$win[df$win == 'False'] = 0
+df$win = as.integer(df$win)
+
+# 별도로 필요할 가능성이 있는 데이터 분리
+
+tier = df$Tier
+division = df$Division
+lane = df$lane
+win = df$win
+positions = positions$teamPosition
+
+# 무의미한 데이터(gameEndedInSurrender => 항복으로 끝난 게임, sightWardsBoughtInGame, dangerPings => 없어진 시스템) 정리
+
+df$gameEndedInSurrender = as.integer(df$gameEndedInSurrender)
+df = subset(df, select = -c(lane, sightWardsBoughtInGame, dangerPings))
+
+# categorical data => ordinal data
+
+df$Tier <- as.numeric(factor(df$Tier, levels = c("IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND")))
+df$Division <- as.numeric(factor(df$Division, levels = c("IV", "III", "II", "I")))
+
+df = subset(df, select =- c(gameEndedInSurrender))
+df2 = df
+
+# 파생변수 생성
+
+df2$kill_per_minute = df2$kills / df2$gameLength
+df2$assists_per_minute = df2$assists / df2$gameLength
+df2$death_per_minute = df2$deaths / df2$gameLength
+df2$gpm = df2$goldEarned / df2$gameLength
+df2$exp_per_minute = df2$champExperience / df2$gameLength
+```
+
+target data 분리
+
+```{r echo=FALSE}
+data = df %>% select(-Tier, -Division, -win)
+
+targets = subset(df, select = c(Tier, Division, win))
+```
+
+Trying PCA
+
+```{r echo=FALSE}
+data_pca = prcomp(data, scale=TRUE)
+suppressWarnings(screeplot(data_pca, type='lines', main='scree for pca'))
+
+a1 = data_pca$rotation[, 1]
+a1
+```
+
+BiPlot
+
+```{r echo=FALSE}
+suppressWarnings(biplot(data_pca, colour=c('blue', 'black'), cex=0.5))
+
+```
+
+```{r echo=FALSE}
+rownames(data) = gsub(" \\(.*", "", rownames(data))
+suppressWarnings(biplot(prcomp(data, scale=TRUE), colour=c('black', 'blue'), xlim=c(-0.5, 0.7), cex=0.5))
+```
+
+그래프 해석상의 어려움으로(직관적으로 이해되지 않는 부분이 많아) 해석은 하지 않았음.
+
+-------------------------------------
+<br>
+
+
+#### 구조방정식 모델 생성
+
+
+##### 모델 설정
+
+
+##### 본 모델에서는 단순한 가법모형을 고려하기로 함. 
+
+```{r}
+
+model_tier = '
+  Tier ~ assists_per_minute + exp_per_minute + death_per_minute + dragonKills + enemyMissingPings + gpm + kill_per_minute +
+         totalDamageDealtToChampions + totalTimeCCDealt + damagePerMinute + enemyJungleMonsterKills +
+         killParticipation + killsNearEnemyTurret + killsUnderOwnTurret + teamDamagePercentage + 
+         visionScorePerMinute + wardTakedowns + wardsGuarded + Division
+'
+```
+
+
+```{r}
+model_win = '
+  win ~ assists_per_minute + exp_per_minute + death_per_minute + dragonKills + enemyMissingPings + gpm + kill_per_minute +
+         totalDamageDealtToChampions + totalTimeCCDealt + damagePerMinute + enemyJungleMonsterKills +
+         killParticipation + killsNearEnemyTurret + killsUnderOwnTurret + teamDamagePercentage +
+         visionScorePerMinute + wardTakedowns + wardsGuarded
+'
+
+```
+
+
+#### 인게임 실제에서는 역할군별로, 선택한 챔피언(유닛) 특성별로 다양한 승리 요인이 기대되나, 분석의 편의를 위해 해당 프로젝트에서는 단일 역할군만을 분석.
+
+```{r echo=FALSE}
+df2$position = positions
+mid_df = df2[df2$position == 'MIDDLE', ]
+```
+
+```{r}
+mid_df <- mid_df %>% select(-position)
+
+scaled_df_mid = subset(mid_df, select =-c(Tier, Division, win))
+```
+
+```{r}
+scaled_df_mid = as.data.frame(scale(scaled_df_mid))
+
+scaled_df_mid$Tier = mid_df$Tier
+scaled_df_mid$Division = mid_df$Division
+scaled_df_mid$win = mid_df$win
+
+scaled_df_mid_tier = as.data.frame(scaled_df_mid)
+scaled_df_mid_win = as.data.frame(scaled_df_mid)
+
+suppressWarnings({
+  fit_mid_tier <- sem(model_tier, data = scaled_df_mid)
+})
+
+suppressWarnings({
+  fit_mid_win <- sem(model_win, data = scaled_df_mid)
+})
+```
+
+```{r}
+summary(fit_mid_tier, standardized = TRUE)
+```
+
+```{r}
+summary(fit_mid_win, standardized = TRUE)
+```
+
+대체로 win~ 모델에서는 게이머들 사이에서 보편적으로 받아들여질 수 있는 결과가 도출, tier~ 모델에서는 일부는 당연납득 가능하지만 일부는 아닌 결과가 도출. 
+
+
+실력대별로 동일한 수준의 상대와 매칭이 이루어지므로 지표상 큰 차이가 나지는 않을 수 있음. 실력대별로 게임 양상이 다르다는 의미로 일단 해석. 추후 ANOVA 등으로 심도있는 분석이 필요할 것으로 사료됨.
+
+
+
+
+#### XGBoost Classifier
+
+```{r echo=FALSE}
+win = scaled_df_mid$win
+tier = scaled_df_mid$Tier
+```
+
+
+
+##### XGB_clf for win
+```{r}
+# random sample
+train_idx = sample(1:nrow(scaled_df_mid), 0.75 * nrow(scaled_df_mid))
+
+train_data = scaled_df_mid[train_idx, ]
+test_data = scaled_df_mid[-train_idx, ]
+
+# label detach
+train_labels = as.numeric(train_data$win)
+test_labels = as.numeric(test_data$win)
+
+# train & test data set
+train_matrix = as.matrix(train_data[, -28])
+test_matrix = as.matrix(test_data[, -28])
+
+dtrain = xgb.DMatrix(data = train_matrix, label=train_labels)
+dtest = xgb.DMatrix(data = test_matrix, label=test_labels)
+
+# hyperparameter setting
+params = list(
+  objective = "binary:logistic",  # binary
+  eval_metric = "error",
+  max_depth = 8
+)
+
+# model fitting
+xgb_clf = xgboost(
+  param = params,
+  data = dtrain,
+  nrounds = 100,  # 트리 생성 횟수
+  verbose = 0,
+  eta=0.1
+)
+
+pred = predict(xgb_clf, dtest)
+preds = ifelse(pred > 0.5, 1, 0)
+
+conf_mat = table(preds, test_labels)
+
+print(conf_mat)
+```
+
+##### xgb_clf for tiers
+
+```{r}
+train_idx = sample(1:nrow(scaled_df_mid), 0.75 * nrow(scaled_df_mid))
+
+train_data = scaled_df_mid[train_idx, ]
+test_data = scaled_df_mid[-train_idx, ]
+
+train_labels = as.numeric(train_data$Tier)-1
+test_labels = as.numeric(test_data$Tier)-1
+
+train_matrix = as.matrix(train_data[, -26])
+test_matrix = as.matrix(test_data[, -26])
+
+dtrain = xgb.DMatrix(data = train_matrix, label=train_labels)
+dtest = xgb.DMatrix(data = test_matrix, label=test_labels)
+
+params = list(
+  objective = "multi:softmax",
+  eval_metric = "merror",
+  max_depth = 8,
+  num_class=7
+)
+
+# 모델 훈련
+xgb_clf = xgboost(
+  param = params,
+  data = dtrain,
+  nrounds = 100, 
+  verbose = 0,
+  eta = 0.1
+)
+
+pred = predict(xgb_clf, dtest)
+
+```
+
+##### conf_matrix for multi-classes(모델 평가를 위함)
+
+```{r}
+pred_transformed = factor(pred, levels = c(0, 1, 2, 3, 4, 5, 6),
+                           labels = c("IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND"))
+
+label_transformed = factor(test_labels, levels = c(0, 1, 2, 3, 4, 5, 6),
+                           labels = c("IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND"))
+
+conf_mat = table(pred_transformed, label_transformed)
+
+print(conf_mat)
+```
+
+```{r}
+accuracy = sum(diag(conf_mat))/sum(conf_mat)
+
+print(accuracy)
+
+class_accuracy <- diag(conf_mat) / colSums(conf_mat)
+cat("classy_accuracy", class_accuracy)
+```
+
+
+win~ 모델은 꽤 괜찮은 성능을 보이나, tier~ 모델은 없는 것 보다는 살짝 나은 성능을 보임.
+
+
+binary 모델보다 multi class가 성능이 떨어지는 것은 이상한 일은 아니나, 그럼에도 불구하고 사용을 위해서는 보다 적극적인 hyper parameter 세팅과 더 큰 데이터셋, 더 정밀한 preprocessing 및 column selection이 요구되는 것으로 사료.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
